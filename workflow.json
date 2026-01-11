@@ -1,0 +1,265 @@
+{
+  "name": "Real Estate Scraping + AI Cleansing + Alert Workflow",
+  "description": "Scrape real estate listings from multiple Thai property websites, cleanse data with AI, and alert on new listings",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "intervalValue": 30,
+              "intervalUnit": "minutes"
+            }
+          ]
+        }
+      },
+      "id": "schedule_trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.ddproperty.com/api/search?type=sale&category=house",
+        "authentication": "none"
+      },
+      "id": "scrape_ddproperty",
+      "name": "Scrape DDProperty",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [450, 150]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.livinginsider.com/api/listings?type=sale",
+        "authentication": "none"
+      },
+      "id": "scrape_livinginsider",
+      "name": "Scrape LivingInsider",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.kaidee.com/property/?c=266",
+        "authentication": "none"
+      },
+      "id": "scrape_kaidee",
+      "name": "Scrape Kaidee Property",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [450, 450]
+    },
+    {
+      "parameters": {
+        "jsonData": "=[\n  ...$json.ddproperty_listings,\n  ...$json.livinginsider_listings,\n  ...$json.kaidee_listings\n].map(item => ({\n  ...item,\n  source: item.source || 'unknown',\n  scraped_at: new Date().toISOString()\n}))"
+      },
+      "id": "merge_listings",
+      "name": "Merge Listings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "prompt": "Analyze this real estate listing and return structured JSON:\n{{ $json }}\n\nFor each listing, extract and normalize:\n1. Property type: 'house' | 'condo' | 'land'\n2. Price in THB (normalize format)\n3. Area in sq.m (normalize format)\n4. Bedrooms, Bathrooms (as numbers)\n5. Owner type: 'owner' | 'agent' | 'unknown'\n6. Location details: province, district, area name\n7. Description summary\n\nReturn ONLY valid JSON array with normalized fields.",
+        "model": "gpt-4",
+        "temperature": 0.3,
+        "maxTokens": 2000
+      },
+      "id": "ai_cleanse",
+      "name": "AI Cleanse Data",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 3,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "jsonData": "=JSON.parse($json.choices[0].message.content).map(item => ({\n  ...item,\n  listing_id: `${item.source}-${item.title.replace(/\\s+/g, '-').toLowerCase().substring(0, 50)}`,\n  url: item.url || null\n}))"
+      },
+      "id": "parse_cleansed",
+      "name": "Parse Cleansed Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://your-db.example.com/api/listings/check",
+        "requestBody": "{\n  \"listings\": {{ $json }}\n}"
+      },
+      "id": "check_duplicates",
+      "name": "Check Duplicates",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "jsonData": "={\n  \"new_listings\": $json.filter(item => item.is_new === true),\n  \"updated_listings\": $json.filter(item => item.is_updated === true),\n  \"timestamp\": new Date().toISOString()\n}"
+      },
+      "id": "filter_new",
+      "name": "Filter New Listings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://notify-api.line.me/api/notify",
+        "headers": {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Authorization": "Bearer {{ $env.LINE_NOTIFY_TOKEN }}"
+        },
+        "sendBody": true,
+        "bodyParametersUi": "keyvalue",
+        "bodyParameters": [
+          {
+            "name": "message",
+            "value": "🏠 New Property Listing Found!\\nPrice: ฿{{ $json.price }}\\nLocation: {{ $json.location }}\\nMore: {{ $json.url }}"
+          }
+        ]
+      },
+      "id": "line_notify",
+      "name": "LINE Notify Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1650, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://your-db.example.com/api/listings/save",
+        "requestBody": "{{ $json }}"
+      },
+      "id": "save_database",
+      "name": "Save to Database",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1650, 400]
+    }
+  ],
+  "connections": {
+    "schedule_trigger": {
+      "main": [
+        [
+          {
+            "node": "scrape_ddproperty",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "scrape_livinginsider",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "scrape_kaidee",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "scrape_ddproperty": {
+      "main": [
+        [
+          {
+            "node": "merge_listings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "scrape_livinginsider": {
+      "main": [
+        [
+          {
+            "node": "merge_listings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "scrape_kaidee": {
+      "main": [
+        [
+          {
+            "node": "merge_listings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "merge_listings": {
+      "main": [
+        [
+          {
+            "node": "ai_cleanse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ai_cleanse": {
+      "main": [
+        [
+          {
+            "node": "parse_cleansed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse_cleansed": {
+      "main": [
+        [
+          {
+            "node": "check_duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_duplicates": {
+      "main": [
+        [
+          {
+            "node": "filter_new",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "filter_new": {
+      "main": [
+        [
+          {
+            "node": "line_notify",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "save_database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
