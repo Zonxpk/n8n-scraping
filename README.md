@@ -1,116 +1,74 @@
-# Project 3: Real Estate Scraping → Cleansing → Alert
+# Project 3: Configurable Multi-Page Web Scraper
 
-Automated workflow to scrape property listings from multiple Thai real estate websites, cleanse and normalize data using AI, detect new listings, and send real-time alerts via LINE Notify.
+A flexible n8n workflow for scraping multi-page websites with configurable selectors and fields. Supports pagination and extracts structured data from web pages.
 
 ## Features
 
-- **Multi-source Scraping**: DDProperty, LivingInsider, Kaidee Property, and other Thai real estate portals
-- **AI-powered Data Cleansing**: Automatically normalize prices, classify property types, detect owner-direct listings
-- **Duplicate Detection**: Prevents duplicate alerts for same property
-- **Smart Alerts**: LINE Notify integration for new listing notifications
-- **Data Enrichment**: Location normalization, area standardization
-- **Database Integration**: Stores all listings for historical analysis
+- **Configurable Scraping**: Define target URL, CSS selectors, and fields to extract
+- **Multi-Page Support**: Automatically follows pagination links and scrapes all pages
+- **Flexible Field Extraction**: Extract text, attributes, or structured data using CSS selectors
+- **Dynamic Configuration**: Configure sources and fields via JSON input
+- **Template-Based**: Easy to adapt for different websites
 
 ## Architecture
 
 ```
-Scheduled Trigger → Scrape Multiple Sites → Merge Data 
-→ AI Cleanse & Normalize → Duplicate Check → Alert (LINE Notify) → Save Database
+Manual Trigger → Set Input Config → Get Start URL → Parse HTML 
+→ Extract Fields → Handle Pagination → Collect Results
 ```
 
 ## Prerequisites
 
 1. **n8n Instance**: Self-hosted or cloud
-2. **OpenAI API Key**: For AI data cleansing
-3. **LINE Notify Token**: For alert notifications
-4. **Database**: PostgreSQL, MongoDB, or Supabase for storing listings
-5. **Web Scraping**: HTTPClient nodes (websites allow scraping) or consider legal/ToS compliance
+2. **Target Website**: Any website with publicly available data
+3. **Basic HTML Knowledge**: Understanding of CSS selectors
+4. **Browser Developer Tools**: To identify CSS selectors on target website
 
 ## Setup Instructions
 
-### 1. Environment Variables
+### 1. Configure Input
 
-Create `.env` file:
+Edit the "Input" node in the workflow with your scraping configuration:
 
-```env
-OPENAI_API_KEY=sk-xxxxxxxxxxxxx
-LINE_NOTIFY_TOKEN=xxxxxxxxxxxxx
-DATABASE_URL=postgresql://user:password@localhost/properties
-DB_TYPE=postgres
-SCRAPE_INTERVAL_MINUTES=30
-ALERT_CHANNELS=all
-FILTERS_MIN_PRICE=500000
-FILTERS_MAX_PRICE=50000000
-FILTERS_PROPERTY_TYPES=house,condo,land
+```json
+{
+  "startUrl": "https://quotes.toscrape.com/tag/humor/",
+  "nextPageSelector": "li.next a[href]",
+  "fields": [
+    {
+      "name": "author",
+      "selector": "span > small.author",
+      "value": "text"
+    },
+    {
+      "name": "text",
+      "selector": "span.text",
+      "value": "text"
+    }
+  ]
+}
 ```
 
-### 2. Database Schema
+**Parameters**:
+- `startUrl`: The first page to scrape
+- `nextPageSelector`: CSS selector for the "next page" link
+- `fields`: Array of fields to extract
+  - `name`: Field name in output
+  - `selector`: CSS selector to find the element
+  - `value`: What to extract ("text" for text content, or attribute name)
 
-```sql
-CREATE TABLE property_listings (
-  id UUID PRIMARY KEY,
-  listing_id VARCHAR(255) UNIQUE,
-  source VARCHAR(50),
-  title VARCHAR(500),
-  price DECIMAL(15,2),
-  price_currency VARCHAR(10),
-  area_sqm DECIMAL(10,2),
-  bedrooms INT,
-  bathrooms INT,
-  property_type VARCHAR(50),
-  owner_type VARCHAR(50),
-  province VARCHAR(100),
-  district VARCHAR(100),
-  area_name VARCHAR(200),
-  description TEXT,
-  url VARCHAR(500),
-  is_owner_direct BOOLEAN,
-  agent_name VARCHAR(255),
-  contact_phone VARCHAR(20),
-  images_count INT,
-  raw_data JSONB,
-  cleansed BOOLEAN,
-  alert_sent BOOLEAN,
-  created_at TIMESTAMP,
-  updated_at TIMESTAMP,
-  scraped_at TIMESTAMP
-);
+### 2. Test the Workflow
 
-CREATE INDEX idx_listing_id ON property_listings(listing_id);
-CREATE INDEX idx_source ON property_listings(source);
-CREATE INDEX idx_province ON property_listings(province);
-CREATE INDEX idx_property_type ON property_listings(property_type);
-CREATE INDEX idx_price ON property_listings(price);
-CREATE INDEX idx_is_owner_direct ON property_listings(is_owner_direct);
-```
+1. Click "Execute Workflow"
+2. Review the extracted data in the results
+3. Adjust selectors if needed
 
-### 3. Configure Scraping Sources
+### 3. Customize for Your Website
 
-Update n8n nodes to point to actual real estate portals:
-
-**DDProperty**:
-```
-https://www.ddproperty.com/search/sale/house
-```
-
-**LivingInsider**:
-```
-https://www.livinginsider.com/for-sale
-```
-
-**Kaidee Property**:
-```
-https://www.kaidee.com/property/?c=266
-```
-
-Add more sources as needed (Hipster, Propertywise, etc.)
-
-### 4. Deploy Workflow
-
-1. Export workflow to n8n
-2. Configure LINE Notify token
-3. Set database connection
-4. Activate workflow (runs every 30 minutes by default)
+1. Open browser DevTools (F12)
+2. Identify the data you want to extract
+3. Get the CSS selectors for those elements
+4. Update the configuration in the "Input" node
 
 ## Example Output
 
